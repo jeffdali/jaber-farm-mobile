@@ -1,41 +1,130 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+# --- General/System ---
+.DS_Store
+.apple
+.history
+.svn
+desktop.ini
+Thumbs.db
+*.com
+*.class
+*.dll
+*.exe
+*.o
+*.so
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip
 
-# dependencies
+# --- Node/JavaScript ---
 node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.eslintcache
+.stylelintcache
+lcov.info
+coverage/
+.yarn/
+!.yarn/releases/
+!.yarn/plugins/
+!.yarn/sdks/
+!.yarn/versions/
 
-# Expo
+# --- Expo/React Native ---
 .expo/
 dist/
 web-build/
 expo-env.d.ts
+.metro-health-check*
+.buckd/
+.fbpython/
+.flowconfig.bin
+.watchmanconfig
+BUCK
+.xmake/
+vcpkg_installed/
 
-# Native
-.kotlin/
-*.orig.*
+# --- Build Artifacts ---
+build/
+bin/
+obj/
+out/
+*.app
+*.ipa
+*.apk
+*.aab
+
+# --- Android Specific ---
+.gradle/
+local.properties
 *.jks
-*.p8
+*.keystore
+*.pk8
 *.p12
 *.key
+/android/app/build/
+/android/build/
+/android/.gradle/
+/android/captures/
+/android/local.properties
+/android/key.properties
+/android/bundle/
+/android/assets/
+
+# --- iOS Specific ---
+ios/build/
+ios/Pods/
+ios/DerivedData/
+*.xcworkspace
+*.xcscheme
+*.xcsettings
+*.xcuserstate
+*.xcresult
 *.mobileprovision
-
-# Metro
-.metro-health-check*
-
-# debug
-npm-debug.*
-yarn-debug.*
-yarn-error.*
-
-# macOS
-.DS_Store
+*.cer
+*.p12
 *.pem
 
-# local env files
+# --- Environments ---
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 .env*.local
 
-# typescript
+# --- IDEs ---
+.vscode/
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/settings.json
+.idea/
+*.iml
+*.iws
+*.ipr
+cmake-build-*/
+
+# --- TypeScript ---
 *.tsbuildinfo
 
-# generated native folders
-/ios
-/android
+# --- Python (Legacy/Scripts) ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
+.pytest_cache/
+
+# --- Project Specific Customizations ---
+# If you are using Expo Prebuild (Managed Workflow), keep these:
+# /ios
+# /android
+# If you have manually modified native code, comment out the lines above.
