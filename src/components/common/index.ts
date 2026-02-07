@@ -6,3 +6,4 @@ export { default as Header } from './AppHeader';
 export { GenericModal } from './GenericModal';
 export { default as Skeleton } from './Skeleton';
 
+export { Dropdown } from './Dropdown';

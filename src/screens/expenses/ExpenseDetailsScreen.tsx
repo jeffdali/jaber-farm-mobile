@@ -1,17 +1,76 @@
-import React from "react";
-import { View, StyleSheet, ScrollView } from "react-native";
+import React, { useState } from "react";
+import {
+  View,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Alert,
+  Platform,
+} from "react-native";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { useTheme } from "../../theme";
-import { Text, Header } from "../../components/common";
+import {
+  Text,
+  Header,
+  GenericModal,
+  Input,
+  Button,
+} from "../../components/common";
 import { _t } from "../../locales";
-import { useRoute } from "@react-navigation/native";
-import { Expense } from "../../services/finance.service";
+import { useRoute, useNavigation } from "@react-navigation/native";
+import { Expense, financeService } from "../../services/finance.service";
 import { formatCurrency } from "../../utils/helpers";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 const ExpenseDetailsScreen = () => {
   const { theme } = useTheme();
   const route = useRoute<any>();
-  const expense: Expense = route.params.expense;
+  const navigation = useNavigation<any>();
+  const [expense, setExpense] = useState<Expense>(route.params.expense);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const [form, setForm] = useState({
+    expense_type: expense.expense_type,
+    amount: expense.amount.toString(),
+    expense_date: expense.expense_date,
+    notes: expense.notes,
+  });
+
+  const [showDatePicker, setShowDatePicker] = useState(false);
+
+  const onDateChange = (event: any, selectedDate?: Date) => {
+    if (Platform.OS !== "ios") {
+      setShowDatePicker(false);
+    }
+    if (selectedDate) {
+      setForm({
+        ...form,
+        expense_date: selectedDate.toISOString().split("T")[0],
+      });
+    }
+  };
+
+  const handleUpdate = async () => {
+    if (!form.amount) {
+      Alert.alert(_t("common.error"), _t("farm.amount"));
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const updated = await financeService.updateExpense(expense.id, {
+        ...form,
+        amount: parseFloat(form.amount),
+      });
+      setExpense(updated);
+      setEditModalVisible(false);
+      Alert.alert(_t("common.success"), _t("farm.updated_successfully"));
+    } catch (error) {
+      Alert.alert(_t("common.error"), _t("farm.failed_to_update"));
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const getIcon = () => {
     switch (expense.expense_type) {
@@ -78,11 +137,35 @@ const ExpenseDetailsScreen = () => {
     </View>
   );
 
+  const handleDelete = () => {
+    Alert.alert(_t("common.confirm"), _t("farm.confirm_delete_expense"), [
+      { text: _t("common.cancel"), style: "cancel" },
+      {
+        text: _t("common.delete"),
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await financeService.deleteExpense(expense.id);
+            Alert.alert(_t("common.success"), _t("farm.deleted_successfully"));
+            navigation.goBack();
+          } catch (error) {
+            Alert.alert(_t("common.error"), _t("farm.failed_to_delete"));
+          }
+        },
+      },
+    ]);
+  };
+
   return (
     <View
       style={[styles.container, { backgroundColor: theme.colors.background }]}
     >
-      <Header title={_t("common.details")} showBack />
+      <Header
+        title={_t("common.details")}
+        showBack
+        rightIcon="delete"
+        onRightPress={handleDelete}
+      />
       <ScrollView contentContainerStyle={styles.content}>
         <View style={[styles.card, { backgroundColor: theme.colors.card }]}>
           <DetailRow
@@ -98,7 +181,7 @@ const ExpenseDetailsScreen = () => {
             color={theme.colors.error}
           />
           <DetailRow
-            label={_t("common.details")}
+            label={_t("farm.expense_date")}
             value={expense.expense_date}
             icon="calendar"
           />
@@ -122,6 +205,97 @@ const ExpenseDetailsScreen = () => {
           </View>
         ) : null}
       </ScrollView>
+
+      <TouchableOpacity
+        style={[styles.fab, { backgroundColor: theme.colors.primary }]}
+        onPress={() => {
+          setForm({
+            expense_type: expense.expense_type,
+            amount: expense.amount.toString(),
+            expense_date: expense.expense_date,
+            notes: expense.notes,
+          });
+          setEditModalVisible(true);
+        }}
+      >
+        <MaterialCommunityIcons name="pencil" size={24} color="#FFF" />
+      </TouchableOpacity>
+
+      <GenericModal
+        visible={editModalVisible}
+        onClose={() => setEditModalVisible(false)}
+        title={_t("common.edit")}
+      >
+        <ScrollView>
+          <Text style={styles.label}>{_t("farm.expense_type")}</Text>
+          <View style={styles.typeRow}>
+            {["medicine", "food", "other"].map((type) => (
+              <TouchableOpacity
+                key={type}
+                style={[
+                  styles.typePill,
+                  { backgroundColor: theme.colors.background },
+                  form.expense_type === type && {
+                    backgroundColor: theme.colors.primary,
+                  },
+                ]}
+                onPress={() => setForm({ ...form, expense_type: type as any })}
+              >
+                <Text
+                  style={{
+                    color:
+                      form.expense_type === type ? "#FFF" : theme.colors.text,
+                    fontWeight: "bold",
+                    fontSize: 12,
+                  }}
+                >
+                  {_t(`farm.${type}`)}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <Input
+            label={_t("farm.amount")}
+            value={form.amount}
+            onChangeText={(t) => setForm({ ...form, amount: t })}
+            keyboardType="decimal-pad"
+          />
+
+          <TouchableOpacity onPress={() => setShowDatePicker(true)}>
+            <Input
+              label={_t("farm.expense_date")}
+              value={form.expense_date}
+              editable={false}
+              pointerEvents="none"
+              rightIcon="calendar"
+            />
+          </TouchableOpacity>
+          {showDatePicker && (
+            <DateTimePicker
+              value={new Date(form.expense_date)}
+              mode="date"
+              display="default"
+              onChange={onDateChange}
+            />
+          )}
+
+          <Input
+            label={_t("farm.notes")}
+            value={form.notes}
+            onChangeText={(t) => setForm({ ...form, notes: t })}
+            multiline
+            style={{ height: 80 }}
+          />
+
+          <Button
+            title={_t("common.save")}
+            onPress={handleUpdate}
+            loading={submitting}
+            style={{ marginTop: 20 }}
+          />
+        </ScrollView>
+      </GenericModal>
     </View>
   );
 };
@@ -132,6 +306,7 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 20,
+    paddingBottom: 100,
   },
   card: {
     borderRadius: 24,
@@ -171,6 +346,39 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 1,
     borderColor: "rgba(0,0,0,0.02)",
+  },
+  fab: {
+    position: "absolute",
+    bottom: 30,
+    right: 25,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: "center",
+    alignItems: "center",
+    elevation: 5,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 5,
+  },
+  label: {
+    marginBottom: 8,
+    fontSize: 14,
+    fontWeight: "bold",
+    opacity: 0.7,
+  },
+  typeRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 20,
+  },
+  typePill: {
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "transparent",
   },
 });
 

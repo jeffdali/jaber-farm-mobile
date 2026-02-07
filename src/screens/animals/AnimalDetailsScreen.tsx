@@ -10,7 +10,9 @@ import {
   I18nManager,
   ActivityIndicator,
   Animated,
+  Platform,
 } from "react-native";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { useTheme } from "../../theme";
 import {
   Text,
@@ -18,6 +20,7 @@ import {
   Button,
   GenericModal,
   Input,
+  Dropdown,
 } from "../../components/common";
 import { _t } from "../../locales";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
@@ -29,10 +32,12 @@ import {
 import {
   Animal,
   BreederNote,
+  PregnancyTracking,
   animalsService,
 } from "../../services/animals.service";
+import { PregnancyItem } from "../../components/animals/PregnancyItem";
 import { financeService } from "../../services/finance.service";
-import { formatCurrency } from "../../utils/helpers";
+import { formatCurrency, getErrorMessage } from "../../utils/helpers";
 
 const { width } = Dimensions.get("window");
 
@@ -41,15 +46,25 @@ const InfoGridItem = ({
   value,
   icon,
   color,
+  flex,
+  style,
 }: {
   label: string;
   value: string;
   icon: string;
   color?: string;
+  flex?: number;
+  style?: any;
 }) => {
   const { theme } = useTheme();
   return (
-    <View style={[styles.infoItem, { backgroundColor: theme.colors.card }]}>
+    <View
+      style={[
+        styles.infoItem,
+        { backgroundColor: theme.colors.card, flex: flex || undefined },
+        style,
+      ]}
+    >
       <View
         style={[
           styles.infoIconBox,
@@ -71,10 +86,60 @@ const InfoGridItem = ({
         </Text>
         <Text
           variant="h3"
+          numberOfLines={1}
           style={{ color: theme.colors.text, fontSize: 16, fontWeight: "700" }}
         >
           {value}
         </Text>
+      </View>
+    </View>
+  );
+};
+
+const DualInfoItem = ({
+  icon,
+  items,
+}: {
+  icon: string;
+  items: { label: string; value: string; color?: string }[];
+}) => {
+  const { theme } = useTheme();
+  return (
+    <View style={[styles.infoItem, { backgroundColor: theme.colors.card }]}>
+      <View
+        style={[
+          styles.infoIconBox,
+          { backgroundColor: theme.colors.primary + "15" },
+        ]}
+      >
+        <MaterialCommunityIcons
+          name={icon as any}
+          size={22}
+          color={theme.colors.primary}
+        />
+      </View>
+      <View style={{ flex: 1, flexDirection: "row", gap: 10 }}>
+        {items.map((item, idx) => (
+          <View key={idx} style={[styles.infoTextContainer, { flex: 1 }]}>
+            <Text
+              variant="caption"
+              style={{ color: theme.colors.text, opacity: 0.5, fontSize: 13 }}
+            >
+              {item.label}
+            </Text>
+            <Text
+              variant="h3"
+              numberOfLines={1}
+              style={{
+                color: item.color || theme.colors.text,
+                fontSize: 15,
+                fontWeight: "700",
+              }}
+            >
+              {item.value}
+            </Text>
+          </View>
+        ))}
       </View>
     </View>
   );
@@ -158,6 +223,61 @@ const NoteItem = ({
   );
 };
 
+const OffspringItem = ({ animal }: { animal: Animal }) => {
+  const { theme } = useTheme();
+  return (
+    <View
+      style={[
+        styles.offspringCard,
+        { backgroundColor: theme.colors.background },
+      ]}
+    >
+      <View
+        style={[
+          styles.avatarBoxSmall,
+          {
+            backgroundColor:
+              animal.gender === "male" ? "#2196F320" : "#E91E6320",
+          },
+        ]}
+      >
+        <MaterialCommunityIcons
+          name={animal.gender === "male" ? "gender-male" : "gender-female"}
+          size={20}
+          color={animal.gender === "male" ? "#2196F3" : "#E91E63"}
+        />
+      </View>
+      <View style={{ flex: 1, marginLeft: 12 }}>
+        <Text variant="h3" style={{ color: theme.colors.text }}>
+          {animal.name || _t("farm.animal")}
+        </Text>
+        <Text
+          variant="caption"
+          style={{ color: theme.colors.text, opacity: 0.6 }}
+        >
+          #{animal.animal_number} • {animal.animal_type_name}
+        </Text>
+      </View>
+      <View
+        style={[
+          styles.typeTagSmall,
+          { backgroundColor: theme.colors.primary + "10" },
+        ]}
+      >
+        <Text
+          style={{
+            color: theme.colors.primary,
+            fontSize: 10,
+            fontWeight: "bold",
+          }}
+        >
+          {animal.age}
+        </Text>
+      </View>
+    </View>
+  );
+};
+
 const AnimalDetailsScreen = () => {
   const { theme } = useTheme();
   const navigation = useNavigation<any>();
@@ -176,6 +296,17 @@ const AnimalDetailsScreen = () => {
   const [noteModalVisible, setNoteModalVisible] = useState(false);
   const [sellModalVisible, setSellModalVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // Pregnancy State
+  const [pregnancyModalVisible, setPregnancyModalVisible] = useState(false);
+  const [pregnancyRecords, setPregnancyRecords] = useState<PregnancyTracking[]>(
+    [],
+  );
+  const [loadingPregnancy, setLoadingPregnancy] = useState(false);
+
+  // Offspring State
+  const [offspringModalVisible, setOffspringModalVisible] = useState(false);
+  const [offspring, setOffspring] = useState<Animal[]>([]);
+  const [loadingOffspring, setLoadingOffspring] = useState(false);
 
   // Animation
   const fadeAnim = useState(new Animated.Value(0))[0];
@@ -184,7 +315,6 @@ const AnimalDetailsScreen = () => {
     const animalId = route.params.animalId || route.params.animal?.id;
     if (!animalId) return;
 
-    if (!animal) setLoading(true); // Only show spinner if no data exists yet
     try {
       const data = await animalsService.getAnimal(animalId);
       setAnimal(data);
@@ -198,7 +328,7 @@ const AnimalDetailsScreen = () => {
     } finally {
       setLoading(false);
     }
-  }, [route.params.animalId, route.params.animal?.id, navigation, animal]);
+  }, [route.params.animalId, route.params.animal?.id, navigation]);
 
   useEffect(() => {
     if (!animal) {
@@ -230,7 +360,41 @@ const AnimalDetailsScreen = () => {
     weight: route.params?.animal?.weight?.toString() || "",
     head_price: route.params?.animal?.head_price?.toString() || "",
     color: route.params?.animal?.color || "",
+    mother: route.params?.animal?.mother || null,
+    birth_date:
+      route.params?.animal?.birth_date ||
+      new Date().toISOString().split("T")[0],
   });
+
+  const [mothers, setMothers] = useState<Animal[]>([]);
+  const [loadingMothers, setLoadingMothers] = useState(false);
+
+  const fetchMothers = useCallback(async () => {
+    setLoadingMothers(true);
+    try {
+      const data = await animalsService.getAllAnimals({
+        gender: "female",
+        status: "all",
+      });
+      // Sort: existing first
+      const sorted = [...data].sort((a, b) => {
+        if (a.status === "existing" && b.status !== "existing") return -1;
+        if (a.status !== "existing" && b.status === "existing") return 1;
+        return 0;
+      });
+      setMothers(sorted);
+    } catch (error) {
+      console.error("Failed to fetch mothers:", error);
+    } finally {
+      setLoadingMothers(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (editModalVisible) {
+      fetchMothers();
+    }
+  }, [editModalVisible, fetchMothers]);
 
   const [noteForm, setNoteForm] = useState({
     id: null as number | null,
@@ -239,8 +403,96 @@ const AnimalDetailsScreen = () => {
 
   const [sellForm, setSellForm] = useState({
     sold_price: animal?.head_price?.toString() || "",
+    sold_at: new Date().toISOString().split("T")[0],
     notes: "",
   });
+
+  const [pregnancyForm, setPregnancyForm] = useState({
+    id: null as number | null,
+    status: "pending" as "pending" | "success" | "cancelled" | "delivered",
+    date_started: new Date().toISOString().split("T")[0],
+    date_confirmed: "",
+    expected_delivery_date: "",
+    notes: "",
+  });
+
+  // Date Pickers
+  const [showBirthDatePicker, setShowBirthDatePicker] = useState(false);
+  const [showPurchaseDatePicker, setShowPurchaseDatePicker] = useState(false);
+  const [showSoldDatePicker, setShowSoldDatePicker] = useState(false);
+  const [showPregnancyDateStartedPicker, setShowPregnancyDateStartedPicker] =
+    useState(false);
+  const [
+    showPregnancyDateConfirmedPicker,
+    setShowPregnancyDateConfirmedPicker,
+  ] = useState(false);
+  const [
+    showPregnancyExpectedDeliveryDatePicker,
+    setShowPregnancyExpectedDeliveryDatePicker,
+  ] = useState(false);
+
+  const onBirthDateChange = (event: any, selectedDate?: Date) => {
+    if (Platform.OS !== "ios") setShowBirthDatePicker(false);
+    if (selectedDate) {
+      setAnimalForm({
+        ...animalForm,
+        birth_date: selectedDate.toISOString().split("T")[0],
+      });
+    }
+  };
+
+  const onPurchaseDateChange = (event: any, selectedDate?: Date) => {
+    if (Platform.OS !== "ios") setShowPurchaseDatePicker(false);
+    if (selectedDate) {
+      setPurchaseForm({
+        ...purchaseForm,
+        purchase_date: selectedDate.toISOString().split("T")[0],
+      });
+    }
+  };
+
+  const onSoldDateChange = (event: any, selectedDate?: Date) => {
+    setShowSoldDatePicker(false);
+    if (selectedDate) {
+      setSellForm({
+        ...sellForm,
+        sold_at: selectedDate.toISOString().split("T")[0],
+      });
+    }
+  };
+
+  const onPregnancyDateStartedChange = (event: any, selectedDate?: Date) => {
+    setShowPregnancyDateStartedPicker(false);
+    if (selectedDate) {
+      setPregnancyForm({
+        ...pregnancyForm,
+        date_started: selectedDate.toISOString().split("T")[0],
+      });
+    }
+  };
+
+  const onPregnancyDateConfirmedChange = (event: any, selectedDate?: Date) => {
+    setShowPregnancyDateConfirmedPicker(false);
+    if (selectedDate) {
+      setPregnancyForm({
+        ...pregnancyForm,
+        date_confirmed: selectedDate.toISOString().split("T")[0],
+      });
+    }
+  };
+
+  const onPregnancyExpectedDeliveryDateChange = (
+    event: any,
+    selectedDate?: Date,
+  ) => {
+    setShowPregnancyExpectedDeliveryDatePicker(false);
+    if (selectedDate) {
+      setPregnancyForm({
+        ...pregnancyForm,
+        expected_delivery_date: selectedDate.toISOString().split("T")[0],
+      });
+    }
+  };
 
   useEffect(() => {
     if (animal) {
@@ -250,13 +502,29 @@ const AnimalDetailsScreen = () => {
         weight: animal.weight?.toString() || "",
         head_price: animal.head_price?.toString() || "",
         color: animal.color,
+        mother: animal.mother,
+        birth_date: animal.birth_date,
       });
       setSellForm((prev) => ({
         ...prev,
         sold_price: animal.head_price?.toString() || prev.sold_price,
+        sold_at: new Date().toISOString().split("T")[0],
       }));
     }
   }, [animal]);
+
+  const fetchOffspring = useCallback(async () => {
+    if (!animal?.id) return;
+    setLoadingOffspring(true);
+    try {
+      const data = await animalsService.getOffspring(animal.id);
+      setOffspring(data);
+    } catch (error) {
+      console.error("Failed to fetch offspring:", error);
+    } finally {
+      setLoadingOffspring(false);
+    }
+  }, [animal?.id]);
 
   const fetchNotes = useCallback(async () => {
     if (!animal?.id) return;
@@ -271,11 +539,87 @@ const AnimalDetailsScreen = () => {
     }
   }, [animal?.id]);
 
+  const fetchPregnancyRecords = useCallback(async () => {
+    if (!animal?.id || animal.gender !== "female") return;
+    setLoadingPregnancy(true);
+    try {
+      const data = await animalsService.getPregnancyRecords(animal.id);
+      setPregnancyRecords(data);
+    } catch (error) {
+      console.error("Failed to fetch pregnancy records:", error);
+    } finally {
+      setLoadingPregnancy(false);
+    }
+  }, [animal?.id, animal?.gender]);
+
   useEffect(() => {
     if (animal?.id) {
       fetchNotes();
+      fetchPregnancyRecords();
     }
-  }, [fetchNotes, animal?.id]);
+  }, [fetchNotes, fetchPregnancyRecords, animal?.id]);
+
+  const handleSavePregnancy = async () => {
+    if (!animal?.id) return;
+    setSubmitting(true);
+    try {
+      const dataToSend = {
+        ...pregnancyForm,
+        animal: animal.id,
+        date_confirmed: pregnancyForm.date_confirmed || null,
+        expected_delivery_date: pregnancyForm.expected_delivery_date || null,
+      };
+
+      if (pregnancyForm.id) {
+        await animalsService.updatePregnancyRecord(
+          pregnancyForm.id,
+          dataToSend as any,
+        );
+      } else {
+        await animalsService.createPregnancyRecord(dataToSend as any);
+      }
+      await fetchPregnancyRecords();
+      // Also refresh animal to get updated status/properties
+      const updatedAnimal = await animalsService.getAnimal(animal.id);
+      setAnimal(updatedAnimal);
+      setPregnancyModalVisible(false);
+      Alert.alert(_t("common.success"), _t("farm.saved_successfully"));
+    } catch (error: any) {
+      const errorMsg = getErrorMessage(
+        error,
+        _t("farm.failed_to_save_pregnancy"),
+      );
+      Alert.alert(_t("common.error"), errorMsg);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  useEffect(() => {
+    if (animal?.id && offspringModalVisible && offspring.length === 0) {
+      fetchOffspring();
+    }
+  }, [offspringModalVisible, animal?.id, fetchOffspring, offspring.length]);
+
+  const handleDeletePregnancy = (id: number) => {
+    Alert.alert(_t("common.confirm"), _t("farm.confirm_delete_pregnancy"), [
+      { text: _t("common.cancel"), style: "cancel" },
+      {
+        text: _t("common.delete"),
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await animalsService.deletePregnancyRecord(id);
+            await fetchPregnancyRecords();
+            const updatedAnimal = await animalsService.getAnimal(animal!.id);
+            setAnimal(updatedAnimal);
+          } catch (error) {
+            Alert.alert(_t("common.error"), _t("farm.failed_to_delete"));
+          }
+        },
+      },
+    ]);
+  };
 
   const handleUpdateAnimal = async () => {
     setSubmitting(true);
@@ -292,7 +636,8 @@ const AnimalDetailsScreen = () => {
       setEditModalVisible(false);
       Alert.alert(_t("common.success"), _t("farm.updated_successfully"));
     } catch (error) {
-      Alert.alert(_t("common.error"), _t("farm.failed_to_update"));
+      const errorMsg = getErrorMessage(error, _t("farm.failed_to_update"));
+      Alert.alert(_t("common.error"), errorMsg);
     } finally {
       setSubmitting(false);
     }
@@ -315,7 +660,75 @@ const AnimalDetailsScreen = () => {
       setNoteModalVisible(false);
       setNoteForm({ id: null, note: "" });
     } catch (error) {
-      Alert.alert(_t("common.error"), _t("farm.failed_to_save"));
+      const errorMsg = getErrorMessage(error, _t("farm.failed_to_save"));
+      Alert.alert(_t("common.error"), errorMsg);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDeleteAnimal = async () => {
+    if (!animal?.id) return;
+
+    try {
+      setSubmitting(true);
+      const checks = await animalsService.checkDeletion(animal.id);
+
+      let warningMessage = _t("farm.confirm_delete_animal");
+      let warnings = [];
+
+      if (checks.has_offspring) {
+        warnings.push(
+          _t("farm.warning_offspring").replace(
+            "{count}",
+            checks.offspring_count.toString(),
+          ),
+        );
+      }
+      if (checks.has_purchase) {
+        warnings.push(_t("farm.warning_purchase"));
+      }
+      if (checks.has_sale) {
+        warnings.push(_t("farm.warning_sale"));
+      }
+
+      if (checks.has_active_pregnancy) {
+        warnings.push(
+          _t("farm.pregnancy_tracking") +
+            ": " +
+            _t("farm.pending") +
+            " / " +
+            _t("farm.is_pregnant_label"),
+        );
+      } else if (checks.has_pregnancy) {
+        warnings.push(_t("farm.pregnancy_tracking"));
+      }
+
+      if (warnings.length > 0) {
+        warningMessage = `${_t("common.warning")}:\n\n- ${warnings.join("\n- ")}\n\n${_t("farm.confirm_continue")}`;
+      }
+
+      Alert.alert(_t("common.confirm"), warningMessage, [
+        { text: _t("common.cancel"), style: "cancel" },
+        {
+          text: _t("common.delete"),
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await animalsService.deleteAnimal(animal.id);
+              Alert.alert(
+                _t("common.success"),
+                _t("farm.deleted_successfully"),
+              );
+              navigation.goBack();
+            } catch (error) {
+              Alert.alert(_t("common.error"), _t("farm.failed_to_delete"));
+            }
+          },
+        },
+      ]);
+    } catch (error) {
+      Alert.alert(_t("common.error"), _t("farm.failed_to_check_deletion"));
     } finally {
       setSubmitting(false);
     }
@@ -332,7 +745,7 @@ const AnimalDetailsScreen = () => {
       await financeService.createSale({
         animal: animal.id,
         sold_price: parseFloat(sellForm.sold_price),
-        sold_at: new Date().toISOString().split("T")[0],
+        sold_at: sellForm.sold_at,
         notes: sellForm.notes,
       });
       setSellModalVisible(false);
@@ -365,6 +778,40 @@ const AnimalDetailsScreen = () => {
     ]);
   };
 
+  /* Purchase Edit Logic */
+  const [purchaseModalVisible, setPurchaseModalVisible] = useState(false);
+  const [purchaseForm, setPurchaseForm] = useState({
+    purchase_price: "",
+    purchase_date: "",
+    seller_name: "",
+  });
+
+  const handleUpdatePurchase = async () => {
+    if (!animal || !animal.purchase_id) return;
+    if (!purchaseForm.purchase_price) {
+      Alert.alert(_t("common.error"), _t("farm.enter_price"));
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await financeService.updatePurchase(animal.purchase_id, {
+        ...purchaseForm,
+        purchase_price: parseFloat(purchaseForm.purchase_price),
+      });
+
+      // Refresh animal data
+      const updatedAnimal = await animalsService.getAnimal(animal.id);
+      navigation.setParams({ animal: updatedAnimal });
+
+      setPurchaseModalVisible(false);
+      Alert.alert(_t("common.success"), _t("farm.updated_successfully"));
+    } catch (error) {
+      Alert.alert(_t("common.error"), _t("farm.failed_to_update"));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const isExist = animal?.status === "existing";
   const genderColor = animal?.gender === "male" ? "#2196F3" : "#E91E63";
 
@@ -372,7 +819,59 @@ const AnimalDetailsScreen = () => {
     <View
       style={[styles.container, { backgroundColor: theme.colors.background }]}
     >
-      <Header title={_t("common.details")} showBack />
+      <Header
+        title={_t("common.details")}
+        showBack
+        rightIcon="delete"
+        onRightPress={handleDeleteAnimal}
+      />
+
+      <GenericModal
+        visible={purchaseModalVisible}
+        onClose={() => setPurchaseModalVisible(false)}
+        title={_t("farm.edit_purchase")}
+      >
+        <ScrollView>
+          <Input
+            label={_t("farm.purchase_price")}
+            value={purchaseForm.purchase_price}
+            onChangeText={(t) =>
+              setPurchaseForm({ ...purchaseForm, purchase_price: t })
+            }
+            keyboardType="decimal-pad"
+          />
+          <TouchableOpacity onPress={() => setShowPurchaseDatePicker(true)}>
+            <Input
+              label={_t("farm.purchase_date")}
+              value={purchaseForm.purchase_date}
+              editable={false}
+              pointerEvents="none"
+              rightIcon="calendar"
+            />
+          </TouchableOpacity>
+          {showPurchaseDatePicker && (
+            <DateTimePicker
+              value={new Date(purchaseForm.purchase_date || new Date())}
+              mode="date"
+              display="default"
+              onChange={onPurchaseDateChange}
+            />
+          )}
+          <Input
+            label={_t("farm.seller_name")}
+            value={purchaseForm.seller_name}
+            onChangeText={(t) =>
+              setPurchaseForm({ ...purchaseForm, seller_name: t })
+            }
+          />
+          <Button
+            title={_t("common.save")}
+            onPress={handleUpdatePurchase}
+            loading={submitting}
+            style={{ marginTop: 20 }}
+          />
+        </ScrollView>
+      </GenericModal>
 
       {loading && !animal ? (
         <View
@@ -465,6 +964,30 @@ const AnimalDetailsScreen = () => {
                         {animal.animal_type_name}
                       </Text>
                     </View>
+                    {animal.is_pregnant && (
+                      <View
+                        style={[
+                          styles.isPregnantTag,
+                          { backgroundColor: "#4CD96415" },
+                        ]}
+                      >
+                        <MaterialCommunityIcons
+                          name="check-decagram"
+                          size={12}
+                          color="#4CD964"
+                        />
+                        <Text
+                          style={{
+                            color: "#4CD964",
+                            fontWeight: "bold",
+                            fontSize: 12,
+                            marginLeft: 4,
+                          }}
+                        >
+                          {_t("farm.is_pregnant_label")}
+                        </Text>
+                      </View>
+                    )}
                     <View
                       style={[
                         styles.numberTag,
@@ -505,50 +1028,117 @@ const AnimalDetailsScreen = () => {
               </View>
 
               <View style={styles.heroActions}>
-                <View
-                  style={[
-                    styles.statusBanner,
-                    {
-                      backgroundColor: isExist ? "#4CD96410" : "#FF3B3010",
-                      borderColor: isExist ? "#4CD96430" : "#FF3B3030",
-                      flex: 1,
-                    },
-                  ]}
-                >
-                  <MaterialCommunityIcons
-                    name={isExist ? "check-decagram" : "alert-decagram"}
-                    size={18}
-                    color={isExist ? "#4CD964" : "#FF3B30"}
-                  />
-                  <Text
-                    style={{
-                      color: isExist ? "#4CD964" : "#FF3B30",
-                      fontWeight: "800",
-                      marginLeft: 8,
-                      letterSpacing: 1,
-                    }}
+                <View style={{ flexDirection: "row", gap: 10 }}>
+                  <View
+                    style={[
+                      styles.statusBanner,
+                      {
+                        backgroundColor: isExist ? "#4CD96410" : "#FF3B3010",
+                        borderColor: isExist ? "#4CD96430" : "#FF3B3030",
+                        flex: 1,
+                        minHeight: 48,
+                      },
+                    ]}
                   >
-                    {_t(`farm.${animal.status}`).toUpperCase()}
-                  </Text>
+                    <MaterialCommunityIcons
+                      name={isExist ? "check-decagram" : "alert-decagram"}
+                      size={18}
+                      color={isExist ? "#4CD964" : "#FF3B30"}
+                    />
+                    <Text
+                      style={{
+                        color: isExist ? "#4CD964" : "#FF3B30",
+                        fontWeight: "800",
+                        letterSpacing: 1,
+                        marginLeft: 6,
+                      }}
+                    >
+                      {_t(`farm.${animal.status}`).toUpperCase()}
+                    </Text>
+                  </View>
+
+                  {animal.offspring_count > 0 && (
+                    <TouchableOpacity
+                      style={[
+                        styles.statusBanner,
+                        {
+                          backgroundColor: theme.colors.primary + "10",
+                          borderColor: theme.colors.primary + "30",
+                          flex: 1,
+                          minHeight: 48,
+                        },
+                      ]}
+                      onPress={() => setOffspringModalVisible(true)}
+                    >
+                      <MaterialCommunityIcons
+                        name="family-tree"
+                        size={18}
+                        color={theme.colors.primary}
+                      />
+                      <Text
+                        style={{
+                          color: theme.colors.primary,
+                          fontWeight: "800",
+                          marginLeft: 6,
+                        }}
+                      >
+                        {animal.offspring_count} {_t("farm.offspring")}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
 
                 {isExist && (
-                  <TouchableOpacity
-                    style={[
-                      styles.sellBtn,
-                      { backgroundColor: theme.colors.primary },
-                    ]}
-                    onPress={() => setSellModalVisible(true)}
-                  >
-                    <MaterialCommunityIcons
-                      name="currency-usd"
-                      size={20}
-                      color="#FFF"
-                    />
-                    <Text style={styles.sellBtnText}>
-                      {_t("farm.sell_animal")}
-                    </Text>
-                  </TouchableOpacity>
+                  <View style={styles.actionButtonsContainer}>
+                    <TouchableOpacity
+                      style={[
+                        styles.actionBtn,
+                        { backgroundColor: theme.colors.primary },
+                      ]}
+                      onPress={() => setSellModalVisible(true)}
+                    >
+                      <MaterialCommunityIcons
+                        name="currency-usd"
+                        size={18}
+                        color="#FFF"
+                      />
+                      <Text style={styles.actionBtnText}>
+                        {_t("farm.sell_animal")}
+                      </Text>
+                    </TouchableOpacity>
+
+                    {animal.gender === "female" &&
+                      !animal.has_active_pregnancy && (
+                        <TouchableOpacity
+                          style={[
+                            styles.actionBtn,
+                            { backgroundColor: "#FF9800" },
+                          ]}
+                          onPress={() => {
+                            setPregnancyForm({
+                              id: null,
+                              status: "pending",
+                              date_started: new Date()
+                                .toISOString()
+                                .split("T")[0],
+                              date_confirmed: "",
+                              expected_delivery_date: "",
+                              notes: "",
+                            });
+                            setPregnancyModalVisible(true);
+                          }}
+                        >
+                          <MaterialCommunityIcons
+                            name="clipboard-pulse"
+                            size={18}
+                            color="#FFF"
+                          />
+                          <Text style={styles.actionBtnText}>
+                            {_t("farm.add_pregnancy")}
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                  </View>
                 )}
               </View>
             </View>
@@ -583,13 +1173,6 @@ const AnimalDetailsScreen = () => {
                   icon="calendar-clock"
                 />
                 <InfoGridItem
-                  label={_t("farm.weight")}
-                  value={
-                    animal.weight ? `${animal.weight} ${_t("farm.kg")}` : "-"
-                  }
-                  icon="weight-kilogram"
-                />
-                <InfoGridItem
                   label={_t("farm.head_price")}
                   value={
                     animal.head_price
@@ -599,21 +1182,42 @@ const AnimalDetailsScreen = () => {
                   icon="cash-multiple"
                 />
                 <InfoGridItem
-                  label={_t("farm.color")}
-                  value={animal.color || "-"}
-                  icon="palette"
-                />
-                <InfoGridItem
                   label={_t("farm.birth_date")}
                   value={animal.birth_date || "-"}
                   icon="calendar-month"
                 />
-                <InfoGridItem
-                  label={_t("farm.gender")}
-                  value={animal.gender ? _t(`common.${animal.gender}`) : "-"}
-                  icon="gender-male-female"
-                  color={genderColor}
+                <DualInfoItem
+                  icon="information-outline"
+                  items={[
+                    {
+                      label: _t("farm.weight"),
+                      value: animal.weight
+                        ? `${animal.weight} ${_t("farm.kg")}`
+                        : "-",
+                    },
+                    {
+                      label: _t("farm.color"),
+                      value: animal.color || "-",
+                    },
+                  ]}
                 />
+                <View style={{ flexDirection: "row", gap: 12 }}>
+                  <InfoGridItem
+                    flex={1}
+                    label={_t("farm.gender")}
+                    value={animal.gender ? _t(`common.${animal.gender}`) : "-"}
+                    icon="gender-male-female"
+                    color={genderColor}
+                  />
+                  <InfoGridItem
+                    flex={1}
+                    label={_t("farm.mother")}
+                    value={
+                      animal.mother_number ? `#${animal.mother_number}` : "-"
+                    }
+                    icon="gender-female"
+                  />
+                </View>
               </View>
             </View>
 
@@ -639,6 +1243,33 @@ const AnimalDetailsScreen = () => {
                   >
                     {_t("stats.purchases")}
                   </Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      // We need purchase ID here. If not available in animal object, we might need to fetch it.
+                      // Assuming we will add purchase_id to animal serializer.
+                      if (animal.purchase_id) {
+                        setPurchaseForm({
+                          purchase_price:
+                            animal.purchase_price?.toString() || "",
+                          purchase_date: animal.purchase_date || "",
+                          seller_name: animal.seller_name || "",
+                        });
+                        setPurchaseModalVisible(true);
+                      } else {
+                        Alert.alert(
+                          _t("common.error"),
+                          "Purchase ID not found",
+                        );
+                      }
+                    }}
+                  >
+                    <MaterialCommunityIcons
+                      name="pencil"
+                      size={20}
+                      color={theme.colors.text}
+                      style={{ opacity: 0.5, marginLeft: 10 }}
+                    />
+                  </TouchableOpacity>
                 </View>
 
                 <View style={styles.infoGrid}>
@@ -666,7 +1297,7 @@ const AnimalDetailsScreen = () => {
               </View>
             )}
 
-            {/* 3. Notes Section */}
+            {/* Moved Pregnancy records section to bottom */}
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <View
@@ -753,6 +1384,82 @@ const AnimalDetailsScreen = () => {
                 </View>
               )}
             </View>
+
+            {/* 3. Pregnancy History Section (Now at bottom) */}
+            {animal.gender === "female" && (
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <View
+                    style={[
+                      styles.sectionIconCircle,
+                      { backgroundColor: "#E91E6315" },
+                    ]}
+                  >
+                    <MaterialCommunityIcons
+                      name="clipboard-pulse"
+                      size={20}
+                      color="#E91E63"
+                    />
+                  </View>
+                  <Text
+                    variant="h3"
+                    style={[
+                      styles.sectionTitle,
+                      { color: theme.colors.text, flex: 1 },
+                    ]}
+                  >
+                    {_t("farm.pregnancy_tracking")}
+                  </Text>
+                </View>
+
+                {loadingPregnancy ? (
+                  <ActivityIndicator
+                    size="small"
+                    color={theme.colors.primary}
+                    style={{ marginTop: 20 }}
+                  />
+                ) : pregnancyRecords.length > 0 ? (
+                  <View style={styles.notesList}>
+                    {pregnancyRecords.map((record) => (
+                      <PregnancyItem
+                        key={record.id}
+                        record={record}
+                        onEdit={() => {
+                          setPregnancyForm({
+                            id: record.id,
+                            status: record.status,
+                            date_started: record.date_started,
+                            date_confirmed: record.date_confirmed || "",
+                            expected_delivery_date:
+                              record.expected_delivery_date || "",
+                            notes: record.notes,
+                          });
+                          setPregnancyModalVisible(true);
+                        }}
+                        onDelete={() => handleDeletePregnancy(record.id)}
+                      />
+                    ))}
+                  </View>
+                ) : (
+                  <View
+                    style={[
+                      styles.emptyState,
+                      { backgroundColor: theme.colors.card },
+                    ]}
+                  >
+                    <Text
+                      style={{
+                        color: theme.colors.text,
+                        opacity: 0.4,
+                        fontStyle: "italic",
+                      }}
+                    >
+                      {_t("farm.no_pregnancy_records")}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
             <View style={{ height: 120 }} />
           </View>
         </ScrollView>
@@ -815,6 +1522,45 @@ const AnimalDetailsScreen = () => {
             value={animalForm.color}
             onChangeText={(t) => setAnimalForm({ ...animalForm, color: t })}
           />
+          <TouchableOpacity onPress={() => setShowBirthDatePicker(true)}>
+            <Input
+              label={_t("farm.birth_date")}
+              value={animalForm.birth_date}
+              editable={false}
+              pointerEvents="none"
+              rightIcon="calendar"
+            />
+          </TouchableOpacity>
+          {showBirthDatePicker && (
+            <DateTimePicker
+              value={new Date(animalForm.birth_date)}
+              mode="date"
+              display="default"
+              onChange={onBirthDateChange}
+            />
+          )}
+
+          <Dropdown
+            label={_t("farm.mother")}
+            data={[
+              { id: null, name: _t("common.none"), animal_number: "" },
+              ...mothers,
+            ]}
+            value={animalForm.mother}
+            valueField="id"
+            labelField={(item: any) => {
+              if (item.id === null) return item.name;
+              return `#${item.animal_number} ${item.name} ${
+                item.status !== "existing" && item.status
+                  ? `(${_t(`farm.${item.status}`)})`
+                  : ""
+              }`;
+            }}
+            placeholder={_t("farm.select_mother")}
+            onChange={(item: any) =>
+              setAnimalForm({ ...animalForm, mother: item.id })
+            }
+          />
           <Button
             title={_t("common.confirm")}
             onPress={handleUpdateAnimal}
@@ -859,6 +1605,23 @@ const AnimalDetailsScreen = () => {
             onChangeText={(t) => setSellForm({ ...sellForm, sold_price: t })}
             keyboardType="decimal-pad"
           />
+          <TouchableOpacity onPress={() => setShowSoldDatePicker(true)}>
+            <Input
+              label={_t("farm.sold_date")}
+              value={sellForm.sold_at}
+              editable={false}
+              pointerEvents="none"
+              rightIcon="calendar"
+            />
+          </TouchableOpacity>
+          {showSoldDatePicker && (
+            <DateTimePicker
+              value={new Date(sellForm.sold_at)}
+              mode="date"
+              display="default"
+              onChange={onSoldDateChange}
+            />
+          )}
           <Input
             label={_t("farm.notes")}
             placeholder="..."
@@ -874,6 +1637,182 @@ const AnimalDetailsScreen = () => {
             style={{ marginTop: 20 }}
           />
         </ScrollView>
+      </GenericModal>
+
+      {/* Pregnancy Modal */}
+      <GenericModal
+        visible={pregnancyModalVisible}
+        onClose={() => setPregnancyModalVisible(false)}
+        title={
+          pregnancyForm.id
+            ? _t("farm.update_pregnancy")
+            : _t("farm.add_pregnancy")
+        }
+      >
+        <ScrollView>
+          <Dropdown
+            label={_t("common.status")}
+            data={[
+              { id: "pending", name: _t("farm.pending") },
+              { id: "success", name: _t("farm.success") },
+              { id: "delivered", name: _t("farm.delivered") },
+              { id: "cancelled", name: _t("farm.cancelled") },
+            ]}
+            value={pregnancyForm.status}
+            valueField="id"
+            labelField="name"
+            onChange={(item: any) =>
+              setPregnancyForm({ ...pregnancyForm, status: item.id })
+            }
+          />
+
+          <View style={{ marginTop: 10 }}>
+            <Text variant="caption" style={{ marginBottom: 5 }}>
+              {_t("farm.date_started")}
+            </Text>
+            <TouchableOpacity
+              onPress={() => setShowPregnancyDateStartedPicker(true)}
+            >
+              <Input
+                value={pregnancyForm.date_started}
+                editable={false}
+                pointerEvents="none"
+                placeholder="YYYY-MM-DD"
+                rightIcon="calendar"
+              />
+            </TouchableOpacity>
+            {showPregnancyDateStartedPicker && (
+              <DateTimePicker
+                value={new Date(pregnancyForm.date_started)}
+                mode="date"
+                display="default"
+                onChange={onPregnancyDateStartedChange}
+              />
+            )}
+          </View>
+
+          {pregnancyForm.status === "success" && (
+            <>
+              <View style={{ marginTop: 10 }}>
+                <Text variant="caption" style={{ marginBottom: 5 }}>
+                  {_t("farm.date_confirmed")}
+                </Text>
+                <TouchableOpacity
+                  onPress={() => setShowPregnancyDateConfirmedPicker(true)}
+                >
+                  <Input
+                    value={
+                      pregnancyForm.date_confirmed ||
+                      new Date().toISOString().split("T")[0]
+                    }
+                    editable={false}
+                    pointerEvents="none"
+                    placeholder="YYYY-MM-DD"
+                    rightIcon="calendar-check"
+                  />
+                </TouchableOpacity>
+                {showPregnancyDateConfirmedPicker && (
+                  <DateTimePicker
+                    value={new Date(pregnancyForm.date_confirmed || Date.now())}
+                    mode="date"
+                    display="default"
+                    onChange={onPregnancyDateConfirmedChange}
+                  />
+                )}
+              </View>
+              <View style={{ marginTop: 10 }}>
+                <Text variant="caption" style={{ marginBottom: 5 }}>
+                  {_t("farm.expected_delivery")}
+                </Text>
+                <TouchableOpacity
+                  onPress={() =>
+                    setShowPregnancyExpectedDeliveryDatePicker(true)
+                  }
+                >
+                  <Input
+                    value={
+                      pregnancyForm.expected_delivery_date ||
+                      new Date().toISOString().split("T")[0]
+                    }
+                    editable={false}
+                    pointerEvents="none"
+                    placeholder="YYYY-MM-DD"
+                    rightIcon="baby-carriage"
+                  />
+                </TouchableOpacity>
+                {showPregnancyExpectedDeliveryDatePicker && (
+                  <DateTimePicker
+                    value={
+                      new Date(
+                        pregnancyForm.expected_delivery_date || Date.now(),
+                      )
+                    }
+                    mode="date"
+                    display="default"
+                    onChange={onPregnancyExpectedDeliveryDateChange}
+                  />
+                )}
+              </View>
+            </>
+          )}
+
+          <Input
+            label={_t("farm.notes")}
+            value={pregnancyForm.notes}
+            onChangeText={(t) =>
+              setPregnancyForm({ ...pregnancyForm, notes: t })
+            }
+            multiline
+            style={{ height: 80, marginTop: 10 }}
+          />
+
+          <Button
+            title={_t("common.confirm")}
+            onPress={handleSavePregnancy}
+            loading={submitting}
+            style={{ marginTop: 20 }}
+          />
+        </ScrollView>
+      </GenericModal>
+
+      <GenericModal
+        visible={offspringModalVisible}
+        onClose={() => setOffspringModalVisible(false)}
+        title={_t("farm.offspring")}
+      >
+        {loadingOffspring ? (
+          <ActivityIndicator
+            size="large"
+            color={theme.colors.primary}
+            style={{ margin: 20 }}
+          />
+        ) : offspring.length > 0 ? (
+          <ScrollView
+            style={{ maxHeight: 400 }}
+            showsVerticalScrollIndicator={false}
+          >
+            {offspring.map((item) => (
+              <TouchableOpacity
+                key={item.id}
+                onPress={() => {
+                  setOffspringModalVisible(false);
+                  navigation.push("AnimalDetails", {
+                    animal: item,
+                    animalId: item.id,
+                  });
+                }}
+              >
+                <OffspringItem animal={item} />
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        ) : (
+          <View style={{ padding: 20, alignItems: "center" }}>
+            <Text style={{ color: theme.colors.text, opacity: 0.6 }}>
+              {_t("farm.no_offspring")}
+            </Text>
+          </View>
+        )}
       </GenericModal>
     </View>
   );
@@ -940,15 +1879,33 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   heroActions: {
-    flexDirection: "row",
-    marginTop: 20,
     gap: 12,
+    marginTop: 20,
+  },
+  actionButtonsContainer: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  actionBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderRadius: 14,
+    minHeight: 48,
+  },
+  actionBtnText: {
+    color: "#FFF",
+    fontWeight: "bold",
+    marginLeft: 6,
+    fontSize: 13,
   },
   statusBanner: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 10,
+    paddingVertical: 12,
     borderRadius: 14,
     borderWidth: 1,
   },
@@ -1009,6 +1966,13 @@ const styles = StyleSheet.create({
   infoTextContainer: {
     flex: 1,
     gap: 2,
+  },
+  isPregnantTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
   },
   addNotePill: {
     flexDirection: "row",
@@ -1076,6 +2040,48 @@ const styles = StyleSheet.create({
   modalRow: {
     flexDirection: "row",
     marginBottom: 10,
+  },
+  formLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    marginTop: 15,
+    marginBottom: 8,
+    opacity: 0.7,
+  },
+  modalScrollRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 10,
+  },
+  formSelection: {
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    minWidth: 80,
+    alignItems: "center",
+    marginRight: 10,
+  },
+  offspringCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    borderRadius: 16,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.05)",
+  },
+  avatarBoxSmall: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  typeTagSmall: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
   },
 });
 

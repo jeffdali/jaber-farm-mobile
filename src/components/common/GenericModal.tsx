@@ -36,7 +36,7 @@ export const GenericModal = ({
       onRequestClose={onClose}
     >
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.container}
       >
         <TouchableWithoutFeedback onPress={onClose}>
@@ -59,7 +59,14 @@ export const GenericModal = ({
             </TouchableOpacity>
           </View>
 
-          <ScrollView contentContainerStyle={styles.content}>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            contentContainerStyle={styles.content}
+            showsVerticalScrollIndicator={false}
+            nestedScrollEnabled={true}
+            scrollEventThrottle={16}
+          >
             {children}
           </ScrollView>
         </View>

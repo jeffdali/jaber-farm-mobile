@@ -324,34 +324,6 @@ const MainNavigator = () => {
           ),
         }}
       />
-      <Drawer.Screen
-        name="AnimalDetails"
-        component={AnimalDetailsScreen}
-        options={{
-          drawerItemStyle: { display: "none" },
-        }}
-      />
-      <Drawer.Screen
-        name="SaleDetails"
-        component={SaleDetailsScreen}
-        options={{
-          drawerItemStyle: { display: "none" },
-        }}
-      />
-      <Drawer.Screen
-        name="PurchaseDetails"
-        component={PurchasesListScreen}
-        options={{
-          drawerItemStyle: { display: "none" },
-        }}
-      />
-      <Drawer.Screen
-        name="ExpenseDetails"
-        component={ExpenseDetailsScreen}
-        options={{
-          drawerItemStyle: { display: "none" },
-        }}
-      />
     </Drawer.Navigator>
   );
 };

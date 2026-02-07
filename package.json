@@ -1,6 +1,6 @@
 {
-  "name": "jabersfarm",
-  "version": "1.0.0",
+  "name": "my-farm",
+  "version": "1.0.1",
   "main": "index.ts",
   "scripts": {
     "start": "expo start",
@@ -11,6 +11,7 @@
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
     "@react-native-async-storage/async-storage": "^2.2.0",
+    "@react-native-community/datetimepicker": "^8.6.0",
     "@react-navigation/bottom-tabs": "^7.10.1",
     "@react-navigation/drawer": "^7.7.13",
     "@react-navigation/native": "^7.1.28",
@@ -34,6 +35,7 @@
   },
   "devDependencies": {
     "@types/react": "~19.1.0",
+    "@types/react-native": "^0.72.8",
     "babel-preset-expo": "^54.0.10",
     "typescript": "~5.9.2"
   },

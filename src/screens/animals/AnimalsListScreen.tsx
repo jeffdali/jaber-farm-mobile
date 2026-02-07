@@ -1,4 +1,11 @@
-import React, { useEffect, useState, useCallback, useMemo, memo } from "react";
+import React, {
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+  memo,
+  useRef,
+} from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import {
   View,
@@ -10,7 +17,9 @@ import {
   ActivityIndicator,
   Alert,
   Dimensions,
+  Platform,
 } from "react-native";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { useNavigation } from "@react-navigation/native";
 import { useTheme } from "../../theme";
 import {
@@ -19,6 +28,7 @@ import {
   Input,
   Button,
   GenericModal,
+  Dropdown,
 } from "../../components/common";
 import { _t } from "../../locales";
 import {
@@ -28,6 +38,7 @@ import {
 } from "../../services/animals.service";
 import { financeService } from "../../services/finance.service";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { getErrorMessage } from "../../utils/helpers";
 
 const { width } = Dimensions.get("window");
 
@@ -152,6 +163,21 @@ const AnimalsListScreen = () => {
   // Filters State
   const [selectedType, setSelectedType] = useState<number | null>(null);
   const [selectedGender, setSelectedGender] = useState<string>("all");
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [advFilters, setAdvFilters] = useState({
+    is_pregnant: null as boolean | null,
+    has_active_pregnancy: null as boolean | null,
+    pregnancy_status: "" as string,
+    birth_date_min: "",
+    birth_date_max: "",
+    weight_min: "",
+    weight_max: "",
+    head_price_min: "",
+    head_price_max: "",
+    color: "",
+    search: "",
+    status: "existing", // Default to existing as requested
+  });
 
   // Add Type Modal State
   const [typeModalVisible, setTypeModalVisible] = useState(false);
@@ -175,7 +201,66 @@ const AnimalsListScreen = () => {
     purchase_price: "",
     purchase_date: new Date().toISOString().split("T")[0],
     seller_name: "",
+    mother: null as number | null,
   });
+
+  // Date Picker State
+  const [showBirthDatePicker, setShowBirthDatePicker] = useState(false);
+  const [showPurchaseDatePicker, setShowPurchaseDatePicker] = useState(false);
+  const [showBirthDateMinPicker, setShowBirthDateMinPicker] = useState(false);
+  const [showBirthDateMaxPicker, setShowBirthDateMaxPicker] = useState(false);
+
+  const onBirthDateChange = (event: any, selectedDate?: Date) => {
+    setShowBirthDatePicker(Platform.OS === "ios");
+    if (selectedDate) {
+      setAnimalForm({
+        ...animalForm,
+        birth_date: selectedDate.toISOString().split("T")[0],
+      });
+    }
+    if (Platform.OS !== "ios") {
+      setShowBirthDatePicker(false);
+    }
+  };
+
+  const onPurchaseDateChange = (event: any, selectedDate?: Date) => {
+    setShowPurchaseDatePicker(Platform.OS === "ios");
+    if (selectedDate) {
+      setAnimalForm({
+        ...animalForm,
+        purchase_date: selectedDate.toISOString().split("T")[0],
+      });
+    }
+    if (Platform.OS !== "ios") {
+      setShowPurchaseDatePicker(false);
+    }
+  };
+
+  const [mothers, setMothers] = useState<Animal[]>([]);
+  const [loadingMothers, setLoadingMothers] = useState(false);
+
+  const fetchMothers = useCallback(async () => {
+    setLoadingMothers(true);
+    try {
+      const data = await animalsService.getAllAnimals({
+        gender: "female",
+        status: "all", // Fetch both existing and sold/dead
+      });
+
+      // Sort: existing first, then others
+      const sorted = [...data].sort((a, b) => {
+        if (a.status === "existing" && b.status !== "existing") return -1;
+        if (a.status !== "existing" && b.status === "existing") return 1;
+        return 0;
+      });
+
+      setMothers(sorted);
+    } catch (error) {
+      console.error("Failed to fetch mothers:", error);
+    } finally {
+      setLoadingMothers(false);
+    }
+  }, []);
 
   // Optimized Fetch Functions
   const fetchTypes = useCallback(
@@ -193,25 +278,96 @@ const AnimalsListScreen = () => {
     [types.length],
   );
 
+  // Pagination State
+  const [page, setPage] = useState(1);
+  const pageRef = useRef(1); // Use ref for fetch logic to avoid stale closures
+  const [nextUrl, setNextUrl] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const isFetchingRef = useRef(false);
+  const lastFiltersHashRef = useRef("");
+
   const fetchAnimals = useCallback(
-    async (isSilent = false) => {
-      if (!isSilent) setLoadingAnimals(true);
+    async (isSilent = false, loadMore = false) => {
+      if (isFetchingRef.current) return;
+
+      const filtersHash = JSON.stringify({
+        selectedType,
+        selectedGender,
+        advFilters,
+      });
+
+      // If we are not loading more, and filters haven't changed, skip (unless it's a silent refresh/force)
+      if (
+        !loadMore &&
+        !isSilent &&
+        filtersHash === lastFiltersHashRef.current &&
+        animals.length > 0
+      ) {
+        return;
+      }
+
+      isFetchingRef.current = true;
+      if (loadMore) {
+        setLoadingMore(true);
+      } else if (!isSilent) {
+        setLoadingAnimals(true);
+      }
+
       try {
-        const data = await animalsService.getAnimals({
-          animal_type: selectedType || undefined,
-          gender: selectedGender === "all" ? undefined : selectedGender,
-        });
-        setAnimals(data);
+        const pageToFetch = loadMore ? pageRef.current + 1 : 1;
+        const data = await animalsService.getAnimals(
+          {
+            animal_type: selectedType || undefined,
+            gender: selectedGender === "all" ? undefined : selectedGender,
+            ...advFilters,
+            is_pregnant:
+              advFilters.is_pregnant === null
+                ? undefined
+                : advFilters.is_pregnant,
+            has_active_pregnancy:
+              advFilters.has_active_pregnancy === null
+                ? undefined
+                : advFilters.has_active_pregnancy,
+            pregnancy_status: advFilters.pregnancy_status || undefined,
+            status: advFilters.status === "all" ? undefined : advFilters.status,
+          },
+          pageToFetch,
+          true,
+        );
+
+        if (loadMore) {
+          setAnimals((prev) => {
+            const newResults = data.results || [];
+            const existingIds = new Set(prev.map((a) => a.id));
+            const filteredNew = newResults.filter(
+              (a: Animal) => !existingIds.has(a.id),
+            );
+            return [...prev, ...filteredNew];
+          });
+          setPage(pageToFetch);
+          pageRef.current = pageToFetch;
+        } else {
+          setAnimals(data.results || []);
+          setPage(1);
+          pageRef.current = 1;
+          lastFiltersHashRef.current = filtersHash;
+        }
+        setNextUrl(data.next);
       } catch (error) {
         console.error("Failed to fetch animals:", error);
-        Alert.alert(_t("common.error"), "Failed to load animals");
+        // Alert only if not silent to avoid annoying user on focus errors
+        if (!isSilent) {
+          Alert.alert(_t("common.error"), "Failed to load animals");
+        }
       } finally {
         setLoadingAnimals(false);
         setLoading(false);
         setRefreshing(false);
+        setLoadingMore(false);
+        isFetchingRef.current = false;
       }
     },
-    [selectedType, selectedGender],
+    [selectedType, selectedGender, advFilters, animals.length],
   );
 
   // Initial Load: Types only once on mount
@@ -219,18 +375,27 @@ const AnimalsListScreen = () => {
     fetchTypes();
   }, []); // Strictly once
 
-  // Load Animals: Only when filters change
+  // Load Animals: Only when filters change (Reset to page 1)
   useEffect(() => {
-    fetchAnimals();
-  }, [fetchAnimals]);
+    // Only fetch if filters actually changed from last fetch
+    const filtersHash = JSON.stringify({
+      selectedType,
+      selectedGender,
+      advFilters,
+    });
+    if (filtersHash !== lastFiltersHashRef.current) {
+      fetchAnimals();
+    }
+  }, [selectedType, selectedGender, advFilters, fetchAnimals]);
 
   // Handle auto-refresh when focusing back
   useFocusEffect(
     useCallback(() => {
-      if (!loading && !loadingAnimals) {
+      // Check if we already have data to avoid unnecessary resets on first focus
+      if (!loading && !loadingAnimals && animals.length === 0) {
         fetchAnimals(true);
       }
-    }, [fetchAnimals, loading, loadingAnimals]),
+    }, [fetchAnimals, loading, loadingAnimals, animals.length]),
   );
 
   const onRefresh = useCallback(async () => {
@@ -248,7 +413,8 @@ const AnimalsListScreen = () => {
       setTypeModalVisible(false);
       fetchTypes();
     } catch (error) {
-      Alert.alert(_t("common.error"), "Failed to create type");
+      const errorMsg = getErrorMessage(error, "Failed to create type");
+      Alert.alert(_t("common.error"), errorMsg);
     } finally {
       setSubmittingType(false);
     }
@@ -279,16 +445,6 @@ const AnimalsListScreen = () => {
           : null,
       } as any);
 
-      if (animalForm.is_purchase) {
-        await financeService.createPurchase({
-          animal: animal.id,
-          purchase_price: parseFloat(animalForm.purchase_price),
-          purchase_date: animalForm.purchase_date,
-          seller_name: animalForm.seller_name,
-          notes: "Automatic purchase record for " + animal.name,
-        });
-      }
-
       setAnimalModalVisible(false);
       setAnimalForm({
         name: "",
@@ -304,13 +460,12 @@ const AnimalsListScreen = () => {
         purchase_price: "",
         purchase_date: new Date().toISOString().split("T")[0],
         seller_name: "",
+        mother: null,
       });
       fetchAnimals(true);
-    } catch (error: any) {
-      const msg = error.response?.data?.animal_number
-        ? "Animal number already exists"
-        : "Failed to create animal";
-      Alert.alert(_t("common.error"), msg);
+    } catch (error) {
+      const errorMsg = getErrorMessage(error, "Failed to create animal");
+      Alert.alert(_t("common.error"), errorMsg);
     } finally {
       setSubmittingAnimal(false);
     }
@@ -449,6 +604,53 @@ const AnimalsListScreen = () => {
         ))}
       </View>
 
+      {/* 2.5 Search & Advanced Filters Bar */}
+      <View style={[styles.searchFilterBar, { marginTop: 15 }]}>
+        <View style={styles.searchIconWrapper}>
+          <MaterialCommunityIcons
+            name="magnify"
+            size={22}
+            color={theme.colors.text}
+            style={{ opacity: 0.5 }}
+          />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Input
+            placeholder={_t("common.search")}
+            value={advFilters.search}
+            onChangeText={(t) => setAdvFilters({ ...advFilters, search: t })}
+            containerStyle={{ marginBottom: 0 }}
+            style={{ height: 44, borderRadius: 12 }}
+          />
+        </View>
+        <TouchableOpacity
+          style={[
+            styles.filterBtn,
+            {
+              backgroundColor: theme.colors.card,
+              borderColor: theme.colors.border,
+            },
+          ]}
+          onPress={() => setFilterModalVisible(true)}
+        >
+          <MaterialCommunityIcons
+            name="tune-variant"
+            size={20}
+            color={theme.colors.primary}
+          />
+          {Object.values(advFilters).some(
+            (v) => v !== "" && v !== null && v !== "existing",
+          ) && (
+            <View
+              style={[
+                styles.filterBadge,
+                { backgroundColor: theme.colors.primary },
+              ]}
+            />
+          )}
+        </TouchableOpacity>
+      </View>
+
       {/* 3. Animals List */}
       <View style={{ flex: 1 }}>
         {loadingAnimals && !refreshing && (
@@ -494,8 +696,302 @@ const AnimalsListScreen = () => {
               </View>
             ) : null
           }
+          ListFooterComponent={
+            nextUrl ? (
+              <View style={{ paddingVertical: 20, alignItems: "center" }}>
+                <Button
+                  title={_t("common.show_more")}
+                  onPress={() => fetchAnimals(true, true)}
+                  loading={loadingMore}
+                  style={{
+                    width: 200,
+                    borderColor: theme.colors.border,
+                    borderWidth: 1,
+                    backgroundColor: "transparent",
+                  }}
+                  textStyle={{ color: theme.colors.text }}
+                />
+              </View>
+            ) : (
+              <View style={{ height: 80 }} />
+            )
+          }
         />
       </View>
+
+      {/* Advanced Filter Modal */}
+      <GenericModal
+        visible={filterModalVisible}
+        onClose={() => setFilterModalVisible(false)}
+        title={_t("farm.filters")}
+      >
+        <View>
+          <Dropdown
+            label={_t("common.status")}
+            data={[
+              { label: _t("common.all"), value: "all" },
+              { label: _t("farm.existing"), value: "existing" },
+              { label: _t("farm.sold"), value: "sold" },
+              { label: _t("farm.dead"), value: "dead" },
+            ]}
+            value={advFilters.status}
+            labelField="label"
+            valueField="value"
+            onChange={(item: any) =>
+              setAdvFilters({ ...advFilters, status: item.value })
+            }
+          />
+
+          <View style={styles.formGrid}>
+            <View style={styles.formGroup}>
+              <Input
+                label={_t("farm.weight_min")}
+                value={advFilters.weight_min}
+                onChangeText={(t) =>
+                  setAdvFilters({ ...advFilters, weight_min: t })
+                }
+                keyboardType="decimal-pad"
+              />
+            </View>
+            <View style={styles.formGroup}>
+              <Input
+                label={_t("farm.weight_max")}
+                value={advFilters.weight_max}
+                onChangeText={(t) =>
+                  setAdvFilters({ ...advFilters, weight_max: t })
+                }
+                keyboardType="decimal-pad"
+              />
+            </View>
+          </View>
+
+          <View style={styles.formGrid}>
+            <View style={styles.formGroup}>
+              <TouchableOpacity onPress={() => setShowBirthDateMinPicker(true)}>
+                <Input
+                  label={_t("farm.birth_date_from")}
+                  value={advFilters.birth_date_min}
+                  editable={false}
+                  pointerEvents="none"
+                  rightIcon="calendar"
+                />
+              </TouchableOpacity>
+              {showBirthDateMinPicker && (
+                <DateTimePicker
+                  value={
+                    advFilters.birth_date_min
+                      ? new Date(advFilters.birth_date_min)
+                      : new Date()
+                  }
+                  mode="date"
+                  display="default"
+                  onChange={(e, d) => {
+                    setShowBirthDateMinPicker(Platform.OS === "ios");
+                    if (d)
+                      setAdvFilters({
+                        ...advFilters,
+                        birth_date_min: d.toISOString().split("T")[0],
+                      });
+                  }}
+                />
+              )}
+            </View>
+            <View style={styles.formGroup}>
+              <TouchableOpacity onPress={() => setShowBirthDateMaxPicker(true)}>
+                <Input
+                  label={_t("farm.birth_date_to")}
+                  value={advFilters.birth_date_max}
+                  editable={false}
+                  pointerEvents="none"
+                  rightIcon="calendar"
+                />
+              </TouchableOpacity>
+              {showBirthDateMaxPicker && (
+                <DateTimePicker
+                  value={
+                    advFilters.birth_date_max
+                      ? new Date(advFilters.birth_date_max)
+                      : new Date()
+                  }
+                  mode="date"
+                  display="default"
+                  onChange={(e, d) => {
+                    setShowBirthDateMaxPicker(Platform.OS === "ios");
+                    if (d)
+                      setAdvFilters({
+                        ...advFilters,
+                        birth_date_max: d.toISOString().split("T")[0],
+                      });
+                  }}
+                />
+              )}
+            </View>
+          </View>
+
+          <View style={styles.formGrid}>
+            <View style={styles.formGroup}>
+              <Input
+                label={_t("farm.price_min")}
+                value={advFilters.head_price_min}
+                onChangeText={(t) =>
+                  setAdvFilters({ ...advFilters, head_price_min: t })
+                }
+                keyboardType="decimal-pad"
+              />
+            </View>
+            <View style={styles.formGroup}>
+              <Input
+                label={_t("farm.price_max")}
+                value={advFilters.head_price_max}
+                onChangeText={(t) =>
+                  setAdvFilters({ ...advFilters, head_price_max: t })
+                }
+                keyboardType="decimal-pad"
+              />
+            </View>
+          </View>
+
+          <Input
+            label={_t("farm.color")}
+            value={advFilters.color}
+            onChangeText={(t) => setAdvFilters({ ...advFilters, color: t })}
+          />
+
+          <Dropdown
+            label={_t("farm.pregnancy_status")}
+            data={[
+              { label: _t("common.all"), value: "" },
+              { label: _t("farm.pending"), value: "pending" },
+              { label: _t("farm.success"), value: "success" },
+              { label: _t("farm.delivered"), value: "delivered" },
+              { label: _t("farm.cancelled"), value: "cancelled" },
+            ]}
+            value={advFilters.pregnancy_status}
+            labelField="label"
+            valueField="value"
+            onChange={(item: any) =>
+              setAdvFilters({ ...advFilters, pregnancy_status: item.value })
+            }
+          />
+
+          <View style={styles.filterSection}>
+            <Text style={[styles.filterLabel, { color: theme.colors.text }]}>
+              {_t("farm.is_pregnant")}
+            </Text>
+            <View style={styles.selectionRow}>
+              {[
+                { label: _t("common.all"), value: null },
+                { label: _t("common.yes"), value: true },
+                { label: _t("common.no"), value: false },
+              ].map((opt, idx) => (
+                <TouchableOpacity
+                  key={idx}
+                  style={[
+                    styles.selectionChip,
+                    { borderColor: theme.colors.border },
+                    advFilters.is_pregnant === opt.value && {
+                      backgroundColor: theme.colors.primary,
+                      borderColor: theme.colors.primary,
+                    },
+                  ]}
+                  onPress={() =>
+                    setAdvFilters({
+                      ...advFilters,
+                      is_pregnant: opt.value as any,
+                    })
+                  }
+                >
+                  <Text
+                    style={{
+                      color:
+                        advFilters.is_pregnant === opt.value
+                          ? "#FFF"
+                          : theme.colors.text,
+                    }}
+                  >
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          <View style={styles.filterSection}>
+            <Text style={[styles.filterLabel, { color: theme.colors.text }]}>
+              {_t("farm.has_active_pregnancy")}
+            </Text>
+            <View style={styles.selectionRow}>
+              {[
+                { label: _t("common.all"), value: null },
+                { label: _t("common.yes"), value: true },
+                { label: _t("common.no"), value: false },
+              ].map((opt, idx) => (
+                <TouchableOpacity
+                  key={idx}
+                  style={[
+                    styles.selectionChip,
+                    { borderColor: theme.colors.border },
+                    advFilters.has_active_pregnancy === opt.value && {
+                      backgroundColor: theme.colors.primary,
+                      borderColor: theme.colors.primary,
+                    },
+                  ]}
+                  onPress={() =>
+                    setAdvFilters({
+                      ...advFilters,
+                      has_active_pregnancy: opt.value as any,
+                    })
+                  }
+                >
+                  <Text
+                    style={{
+                      color:
+                        advFilters.has_active_pregnancy === opt.value
+                          ? "#FFF"
+                          : theme.colors.text,
+                    }}
+                  >
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          <View style={{ gap: 10, marginTop: 20 }}>
+            <Button
+              title={_t("farm.apply_filters")}
+              onPress={() => {
+                setFilterModalVisible(false);
+                fetchAnimals();
+              }}
+            />
+            <Button
+              title={_t("farm.reset_filters")}
+              variant="outline"
+              onPress={() => {
+                setAdvFilters({
+                  is_pregnant: null,
+                  has_active_pregnancy: null,
+                  pregnancy_status: "",
+                  birth_date_min: "",
+                  birth_date_max: "",
+                  weight_min: "",
+                  weight_max: "",
+                  head_price_min: "",
+                  head_price_max: "",
+                  color: "",
+                  search: "",
+                  status: "existing",
+                });
+                setSelectedType(null);
+                setSelectedGender("all");
+                setFilterModalVisible(false);
+              }}
+            />
+          </View>
+        </View>
+      </GenericModal>
 
       {/* 4. FAB - Add Animal */}
       <TouchableOpacity
@@ -503,6 +999,7 @@ const AnimalsListScreen = () => {
         activeOpacity={0.8}
         onPress={() => {
           setAnimalForm((prev) => ({ ...prev, animal_type: selectedType }));
+          fetchMothers();
           setAnimalModalVisible(true);
         }}
       >
@@ -537,10 +1034,7 @@ const AnimalsListScreen = () => {
         onClose={() => setAnimalModalVisible(false)}
         title={_t("farm.add_animal")}
       >
-        <ScrollView
-          style={styles.modalScroll}
-          showsVerticalScrollIndicator={false}
-        >
+        <View>
           <View style={styles.formGrid}>
             <View style={styles.formGroup}>
               <Input
@@ -589,42 +1083,38 @@ const AnimalsListScreen = () => {
             ))}
           </View>
 
-          <Text style={styles.formLabel}>{_t("farm.animals")}</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.formRow}
-          >
-            {types.map((type) => (
-              <TouchableOpacity
-                key={type.id}
-                style={[
-                  styles.formSelection,
-                  { borderColor: theme.colors.border },
-                  animalForm.animal_type === type.id && {
-                    backgroundColor: theme.colors.primary,
-                    borderColor: theme.colors.primary,
-                  },
-                ]}
-                onPress={() =>
-                  setAnimalForm({ ...animalForm, animal_type: type.id })
-                }
-              >
-                <Text
-                  style={{
-                    color:
-                      animalForm.animal_type === type.id
-                        ? "#FFF"
-                        : theme.colors.text,
-                  }}
-                >
-                  {type.name}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+          <Dropdown
+            label={_t("farm.animals")}
+            data={types}
+            value={animalForm.animal_type}
+            valueField="id"
+            labelField="name"
+            placeholder={_t("farm.select_type")}
+            onChange={(item: AnimalType) =>
+              setAnimalForm({ ...animalForm, animal_type: item.id })
+            }
+          />
 
           <View style={styles.formGrid}>
+            <View style={styles.formGroup}>
+              <TouchableOpacity onPress={() => setShowBirthDatePicker(true)}>
+                <Input
+                  label={_t("farm.birth_date")}
+                  value={animalForm.birth_date}
+                  editable={false}
+                  pointerEvents="none"
+                  rightIcon="calendar"
+                />
+              </TouchableOpacity>
+              {showBirthDatePicker && (
+                <DateTimePicker
+                  value={new Date(animalForm.birth_date)}
+                  mode="date"
+                  display="default"
+                  onChange={onBirthDateChange}
+                />
+              )}
+            </View>
             <View style={styles.formGroup}>
               <Input
                 label={_t("farm.weight")}
@@ -633,16 +1123,7 @@ const AnimalsListScreen = () => {
                   setAnimalForm({ ...animalForm, weight: t })
                 }
                 keyboardType="decimal-pad"
-              />
-            </View>
-            <View style={styles.formGroup}>
-              <Input
-                label={_t("farm.head_price")}
-                value={animalForm.head_price}
-                onChangeText={(t) =>
-                  setAnimalForm({ ...animalForm, head_price: t })
-                }
-                keyboardType="decimal-pad"
+                rightIcon="weight-kilogram"
               />
             </View>
           </View>
@@ -651,6 +1132,41 @@ const AnimalsListScreen = () => {
             label={_t("farm.color")}
             value={animalForm.color}
             onChangeText={(t) => setAnimalForm({ ...animalForm, color: t })}
+          />
+
+          {loadingMothers ? (
+            <ActivityIndicator size="small" color={theme.colors.primary} />
+          ) : (
+            <Dropdown
+              label={_t("farm.mother")}
+              data={[
+                { id: null, name: _t("common.none"), animal_number: "" },
+                ...mothers,
+              ]}
+              value={animalForm.mother}
+              valueField="id"
+              labelField={(item: any) => {
+                if (item.id === null) return item.name;
+                return `#${item.animal_number} ${item.name} ${
+                  item.status !== "existing" && item.status
+                    ? `(${_t(`farm.${item.status}`)})`
+                    : ""
+                }`;
+              }}
+              placeholder={_t("farm.select_mother")}
+              onChange={(item: any) =>
+                setAnimalForm({ ...animalForm, mother: item.id })
+              }
+            />
+          )}
+
+          <Input
+            label={_t("farm.head_price")}
+            value={animalForm.head_price}
+            onChangeText={(t) =>
+              setAnimalForm({ ...animalForm, head_price: t })
+            }
+            keyboardType="decimal-pad"
           />
 
           <Input
@@ -716,13 +1232,25 @@ const AnimalsListScreen = () => {
                   />
                 </View>
                 <View style={styles.formGroup}>
-                  <Input
-                    label={_t("farm.purchase_date")}
-                    value={animalForm.purchase_date}
-                    onChangeText={(t) =>
-                      setAnimalForm({ ...animalForm, purchase_date: t })
-                    }
-                  />
+                  <TouchableOpacity
+                    onPress={() => setShowPurchaseDatePicker(true)}
+                  >
+                    <Input
+                      label={_t("farm.purchase_date")}
+                      value={animalForm.purchase_date}
+                      editable={false}
+                      pointerEvents="none"
+                      rightIcon="calendar"
+                    />
+                  </TouchableOpacity>
+                  {showPurchaseDatePicker && (
+                    <DateTimePicker
+                      value={new Date(animalForm.purchase_date)}
+                      mode="date"
+                      display="default"
+                      onChange={onPurchaseDateChange}
+                    />
+                  )}
                 </View>
               </View>
               <Input
@@ -741,7 +1269,7 @@ const AnimalsListScreen = () => {
             loading={submittingAnimal}
             style={{ marginVertical: 20 }}
           />
-        </ScrollView>
+        </View>
       </GenericModal>
     </View>
   );
@@ -924,6 +1452,74 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     padding: 5,
+  },
+  searchFilterBar: {
+    flexDirection: "row",
+    paddingHorizontal: 20,
+    marginBottom: 15,
+    gap: 12,
+    alignItems: "center",
+  },
+  searchIconWrapper: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  filterBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+  },
+  filterBadge: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: "#FFF",
+  },
+  filterRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(0,0,0,0.05)",
+  },
+  toggleBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    minWidth: 70,
+    alignItems: "center",
+  },
+  filterSection: {
+    marginVertical: 10,
+  },
+  filterLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 8,
+    opacity: 0.7,
+  },
+  selectionRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  selectionChip: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });
 

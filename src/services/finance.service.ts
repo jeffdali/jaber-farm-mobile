@@ -15,6 +15,7 @@ export interface StatsResponse {
   animals: {
     total_alive: number;
     total_dead: number;
+    by_type: { name: string; count: number }[];
     sold: PeriodStats;
     purchased: PeriodStats;
   };
@@ -63,8 +64,16 @@ export const financeService = {
   },
 
   // Sales
-  getSales: async (): Promise<Sale[]> => {
-    const response = await api.get<any>("sales/");
+  getSales: async (
+    filters: any = {},
+    page: number = 1,
+    returnFullResponse = false
+  ): Promise<any> => {
+    const params = { ...filters, page };
+    const response = await api.get<any>("sales/", { params });
+    if (returnFullResponse) {
+      return response.data;
+    }
     if (response.data.results) {
       return response.data.results;
     }
@@ -87,8 +96,16 @@ export const financeService = {
   },
 
   // Expenses
-  getExpenses: async (): Promise<Expense[]> => {
-    const response = await api.get<any>("expenses/");
+  getExpenses: async (
+    filters: any = {},
+    page: number = 1,
+    returnFullResponse = false
+  ): Promise<any> => {
+    const params = { ...filters, page };
+    const response = await api.get<any>("expenses/", { params });
+    if (returnFullResponse) {
+      return response.data;
+    }
     if (response.data.results) {
       return response.data.results;
     }
@@ -111,8 +128,16 @@ export const financeService = {
   },
 
   // Purchases
-  getPurchases: async (): Promise<Purchase[]> => {
-    const response = await api.get<any>("purchases/");
+  getPurchases: async (
+    filters: any = {},
+    page: number = 1,
+    returnFullResponse = false
+  ): Promise<any> => {
+    const params = { ...filters, page };
+    const response = await api.get<any>("purchases/", { params });
+    if (returnFullResponse) {
+      return response.data;
+    }
     if (response.data.results) {
       return response.data.results;
     }

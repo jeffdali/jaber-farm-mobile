@@ -1,10 +1,22 @@
-import React from "react";
-import { View, StyleSheet, ScrollView, TouchableOpacity } from "react-native";
+import React, { useState } from "react";
+import {
+  View,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Alert,
+} from "react-native";
 import { useTheme } from "../../theme";
-import { Text, Header } from "../../components/common";
+import {
+  Text,
+  Header,
+  GenericModal,
+  Input,
+  Button,
+} from "../../components/common";
 import { _t } from "../../locales";
 import { useRoute, useNavigation } from "@react-navigation/native";
-import { Sale } from "../../services/finance.service";
+import { Sale, financeService } from "../../services/finance.service";
 import { formatCurrency } from "../../utils/helpers";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 
@@ -12,7 +24,36 @@ const SaleDetailsScreen = () => {
   const { theme } = useTheme();
   const route = useRoute<any>();
   const navigation = useNavigation<any>();
-  const sale: Sale = route.params.sale;
+  const [sale, setSale] = useState<Sale>(route.params.sale);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const [form, setForm] = useState({
+    sold_price: sale.sold_price.toString(),
+    sold_at: sale.sold_at,
+    notes: sale.notes,
+  });
+
+  const handleUpdate = async () => {
+    if (!form.sold_price) {
+      Alert.alert(_t("common.error"), _t("farm.enter_price"));
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const updated = await financeService.updateSale(sale.id, {
+        ...form,
+        sold_price: parseFloat(form.sold_price),
+      });
+      setSale(updated);
+      setEditModalVisible(false);
+      Alert.alert(_t("common.success"), _t("farm.updated_successfully"));
+    } catch (error) {
+      Alert.alert(_t("common.error"), _t("farm.failed_to_update"));
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const DetailRow = ({
     label,
@@ -55,11 +96,35 @@ const SaleDetailsScreen = () => {
     </View>
   );
 
+  const handleDelete = () => {
+    Alert.alert(_t("common.confirm"), _t("farm.confirm_delete_sale"), [
+      { text: _t("common.cancel"), style: "cancel" },
+      {
+        text: _t("common.delete"),
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await financeService.deleteSale(sale.id);
+            Alert.alert(_t("common.success"), _t("farm.deleted_successfully"));
+            navigation.goBack();
+          } catch (error) {
+            Alert.alert(_t("common.error"), _t("farm.failed_to_delete"));
+          }
+        },
+      },
+    ]);
+  };
+
   return (
     <View
       style={[styles.container, { backgroundColor: theme.colors.background }]}
     >
-      <Header title={_t("common.details")} showBack />
+      <Header
+        title={_t("common.details")}
+        showBack
+        rightIcon="delete"
+        onRightPress={handleDelete}
+      />
       <ScrollView contentContainerStyle={styles.content}>
         <View style={[styles.card, { backgroundColor: theme.colors.card }]}>
           <TouchableOpacity
@@ -105,6 +170,56 @@ const SaleDetailsScreen = () => {
           </View>
         ) : null}
       </ScrollView>
+
+      <TouchableOpacity
+        style={[styles.fab, { backgroundColor: theme.colors.primary }]}
+        onPress={() => {
+          setForm({
+            sold_price: sale.sold_price.toString(),
+            sold_at: sale.sold_at,
+            notes: sale.notes,
+          });
+          setEditModalVisible(true);
+        }}
+      >
+        <MaterialCommunityIcons name="pencil" size={24} color="#FFF" />
+      </TouchableOpacity>
+
+      <GenericModal
+        visible={editModalVisible}
+        onClose={() => setEditModalVisible(false)}
+        title={_t("common.edit")}
+      >
+        <ScrollView>
+          <Input
+            label={_t("farm.sold_price")}
+            value={form.sold_price}
+            onChangeText={(t) => setForm({ ...form, sold_price: t })}
+            keyboardType="decimal-pad"
+          />
+
+          <Input
+            label={_t("farm.sold_date")}
+            value={form.sold_at}
+            onChangeText={(t) => setForm({ ...form, sold_at: t })}
+          />
+
+          <Input
+            label={_t("farm.notes")}
+            value={form.notes}
+            onChangeText={(t) => setForm({ ...form, notes: t })}
+            multiline
+            style={{ height: 80 }}
+          />
+
+          <Button
+            title={_t("common.save")}
+            onPress={handleUpdate}
+            loading={submitting}
+            style={{ marginTop: 20 }}
+          />
+        </ScrollView>
+      </GenericModal>
     </View>
   );
 };
@@ -115,6 +230,7 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 20,
+    paddingBottom: 100,
   },
   card: {
     borderRadius: 24,
@@ -154,6 +270,21 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 1,
     borderColor: "rgba(0,0,0,0.02)",
+  },
+  fab: {
+    position: "absolute",
+    bottom: 30,
+    right: 25,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: "center",
+    alignItems: "center",
+    elevation: 5,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 5,
   },
 });
 

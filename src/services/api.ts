@@ -3,11 +3,10 @@ import { store } from '../redux/store';
 import { updateAccessToken, logout } from '../redux/auth/authSlice';
 
 // Base API URL
-// 1. For Android emulator (10.0.2.2) when server is on 127.0.0.1
-// 2. For physical device or iOS simulator (your local IP) 
 // IMPORTANT: If using physical device, run server as: python manage.py runserver 0.0.0.0:8000
-// const BASE_URL = 'http://10.100.52.67:8000/farm-api/'; // Change to 'http://10.100.52.1:8000/farm-api/' for Android Emulator if needed
-const BASE_URL = 'https://shopalali.com/farm-api/'; // Change to 'http://10.100.52.1:8000/farm-api/' for Android Emulator if needed
+import { getBaseUrl } from '../config';
+
+const BASE_URL = getBaseUrl();
 
 const api: AxiosInstance = axios.create({
   baseURL: BASE_URL,

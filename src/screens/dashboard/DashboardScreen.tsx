@@ -124,24 +124,66 @@ const StatGroup = ({
   );
 };
 
+const InventoryByType = ({
+  data,
+}: {
+  data: { name: string; count: number }[] | undefined;
+}) => {
+  const { theme } = useTheme();
+  return (
+    <View
+      style={[styles.animalsSection, { backgroundColor: theme.colors.card }]}
+    >
+      <View style={styles.sectionHeader}>
+        <MaterialCommunityIcons
+          name="chart-donut"
+          size={24}
+          color={theme.colors.primary}
+        />
+        <Text variant="h3" style={{ color: theme.colors.text, marginLeft: 10 }}>
+          {_t("stats.animals_by_type")}
+        </Text>
+      </View>
+      <View style={styles.typesGrid}>
+        {(data || []).map((item, idx) => (
+          <View
+            key={idx}
+            style={[
+              styles.typeBadge,
+              { backgroundColor: theme.colors.primary + "10" },
+            ]}
+          >
+            <Text style={[styles.typeName, { color: theme.colors.text }]}>
+              {item.name}
+            </Text>
+            <View
+              style={[
+                styles.countPill,
+                { backgroundColor: theme.colors.primary },
+              ]}
+            >
+              <Text style={styles.typeCount}>{formatNumber(item.count)}</Text>
+            </View>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+};
+
 const DashboardScreen = () => {
   const { theme } = useTheme();
   const navigation = useNavigation<any>();
   const user = useAppSelector((state) => state.auth.user);
   const [stats, setStats] = useState<StatsResponse | null>(null);
-  const [recentAnimals, setRecentAnimals] = useState<Animal[]>([]);
   const [period, setPeriod] = useState<Period>("month");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
-      const [statsData, animalsData] = await Promise.all([
-        financeService.getStats(),
-        animalsService.getAnimals({ ordering: "-created_at", limit: 5 } as any),
-      ]);
+      const statsData = await financeService.getStats();
       setStats(statsData);
-      setRecentAnimals(animalsData);
     } catch (error) {
       console.error("Failed to fetch dashboard data:", error);
     } finally {
@@ -169,17 +211,23 @@ const DashboardScreen = () => {
 
     let source: any;
     if (key === "sold") {
-      source = stats.animals.sold;
+      source = stats.animals?.sold;
     } else if (key === "purchased") {
-      source = stats.animals.purchased;
+      source = stats.animals?.purchased;
     } else {
       source = stats[key];
     }
 
     if (period === "month") {
-      return { curr: source.current_month, prev: source.previous_month };
+      return {
+        curr: source?.current_month || 0,
+        prev: source?.previous_month || 0,
+      };
     } else {
-      return { curr: source.current_year, prev: source.previous_year };
+      return {
+        curr: source?.current_year || 0,
+        prev: source?.previous_year || 0,
+      };
     }
   };
 
@@ -208,8 +256,7 @@ const DashboardScreen = () => {
         <View style={styles.welcomeRow}>
           <View style={styles.welcomeSection}>
             <Text variant="h2" style={{ color: theme.colors.text }}>
-              {_t("auth.login_title").split(" ")[0]},{" "}
-              {user?.first_name || user?.username}!
+              {_t("common.welcome")}, {user?.first_name || user?.username}!
             </Text>
           </View>
 
@@ -279,6 +326,9 @@ const DashboardScreen = () => {
           </View>
         ) : stats ? (
           <View style={styles.sectionsContainer}>
+            {/* 0. INVENTORY BY TYPE (Independent of period) */}
+            <InventoryByType data={stats?.animals?.by_type} />
+
             {/* 1. PROFITS SECTION */}
             <View style={[styles.mainCard, { backgroundColor: profitCardBg }]}>
               <View style={styles.mainCardHeader}>
@@ -380,7 +430,7 @@ const DashboardScreen = () => {
                     {_t("stats.animals_alive")}
                   </Text>
                   <Text variant="h2" style={{ color: theme.colors.text }}>
-                    {formatNumber(stats.animals.total_alive)}
+                    {formatNumber(stats?.animals?.total_alive || 0)}
                   </Text>
                 </View>
                 <View
@@ -399,10 +449,21 @@ const DashboardScreen = () => {
                     {_t("stats.animals_dead")}
                   </Text>
                   <Text variant="h2" style={{ color: "#FF3B30" }}>
-                    {formatNumber(stats.animals.total_dead)}
+                    {formatNumber(stats?.animals?.total_dead || 0)}
                   </Text>
                 </View>
               </View>
+
+              <View
+                style={[
+                  styles.divider,
+                  {
+                    backgroundColor: theme.colors.border,
+                    opacity: 0.1,
+                    marginVertical: 15,
+                  },
+                ]}
+              />
 
               <View
                 style={[
@@ -493,80 +554,6 @@ const DashboardScreen = () => {
                   </View>
                 </View>
               </View>
-            </View>
-
-            {/* 5. RECENT ANIMALS SECTION */}
-            <View style={styles.recentSection}>
-              <View style={styles.recentHeader}>
-                <Text variant="h3" style={{ color: theme.colors.text }}>
-                  {_t("farm.last_added")}
-                </Text>
-                <TouchableOpacity onPress={() => navigation.navigate("MyFarm")}>
-                  <Text
-                    style={{
-                      color: theme.colors.primary,
-                      fontWeight: "bold",
-                    }}
-                  >
-                    {_t("farm.view_all")}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.recentScroll}
-              >
-                {recentAnimals.map((animal) => (
-                  <TouchableOpacity
-                    key={animal.id}
-                    onPress={() =>
-                      navigation.navigate("AnimalDetails", { animal })
-                    }
-                    style={[
-                      styles.recentCard,
-                      { backgroundColor: theme.colors.card },
-                    ]}
-                  >
-                    <View
-                      style={[
-                        styles.recentIconBox,
-                        {
-                          backgroundColor:
-                            animal.gender === "male"
-                              ? "#2196F315"
-                              : "#E91E6315",
-                        },
-                      ]}
-                    >
-                      <MaterialCommunityIcons
-                        name={
-                          animal.gender === "male"
-                            ? "gender-male"
-                            : "gender-female"
-                        }
-                        size={20}
-                        color={animal.gender === "male" ? "#2196F3" : "#E91E63"}
-                      />
-                    </View>
-                    <Text
-                      numberOfLines={1}
-                      style={[styles.recentName, { color: theme.colors.text }]}
-                    >
-                      {animal.name || `Animal ${animal.animal_number}`}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.recentType,
-                        { color: theme.colors.text, opacity: 0.5 },
-                      ]}
-                    >
-                      #{animal.animal_number}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
             </View>
           </View>
         ) : null}
@@ -757,47 +744,39 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "flex-end",
   },
-  recentSection: {
-    marginTop: 10,
+  byTypeSection: {
+    marginTop: 5,
   },
-  recentHeader: {
+  typesGrid: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  typeBadge: {
+    flexDirection: "row",
     alignItems: "center",
-    marginBottom: 15,
-  },
-  recentScroll: {
-    gap: 12,
-    paddingRight: 20,
-  },
-  recentCard: {
-    width: 130,
-    padding: 12,
-    borderRadius: 20,
-    alignItems: "center",
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-  },
-  recentIconBox: {
-    width: 40,
-    height: 40,
+    paddingLeft: 12,
+    paddingRight: 6,
+    paddingVertical: 6,
     borderRadius: 12,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 10,
+    gap: 8,
   },
-  recentName: {
+  typeName: {
     fontSize: 13,
-    fontWeight: "bold",
-    textAlign: "center",
-    marginBottom: 4,
-  },
-  recentType: {
-    fontSize: 11,
     fontWeight: "600",
+  },
+  countPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+    minWidth: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  typeCount: {
+    color: "#FFF",
+    fontSize: 11,
+    fontWeight: "bold",
   },
 });
 

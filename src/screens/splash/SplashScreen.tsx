@@ -15,7 +15,7 @@ const SplashScreen = ({ navigation }: any) => {
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.primary }]}>
       <Text style={[styles.text, { color: theme.colors.onPrimary }]}>
-        Jabers Farm
+        مزرعتي
       </Text>
     </View>
   );

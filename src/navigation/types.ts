@@ -2,6 +2,13 @@ export type RootStackParamList = {
   Splash: undefined;
   Login: undefined;
   Main: undefined;
+  AnimalDetails: { 
+    animal?: import("../services/animals.service").Animal;
+    animalId?: number;
+  };
+  SaleDetails: { sale: import("../services/finance.service").Sale };
+  PurchaseDetails: { purchase: any };
+  ExpenseDetails: { expense: import("../services/finance.service").Expense };
 };
 
 export type DrawerParamList = {
@@ -14,10 +21,6 @@ export type DrawerParamList = {
   Profile: undefined;
   About: undefined;
   Settings: undefined;
-  AnimalDetails: { animal: import("../services/animals.service").Animal };
-  SaleDetails: { sale: import("../services/finance.service").Sale };
-  PurchaseDetails: { purchase: import("../services/finance.service").Purchase };
-  ExpenseDetails: { expense: import("../services/finance.service").Expense };
 };
 
 export type BottomTabParamList = {

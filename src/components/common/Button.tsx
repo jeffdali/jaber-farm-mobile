@@ -13,7 +13,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 interface AppButtonProps {
   title: string;
   onPress: () => void;
-  variant?: "primary" | "secondary" | "danger";
+  variant?: "primary" | "secondary" | "danger" | "outline";
   size?: "h1" | "h2" | "h3" | "h4" | "h5" | "h6"; // Size mapping to typography? Or just fixed sizes
   disabled?: boolean;
   loading?: boolean;
@@ -37,6 +37,8 @@ const AppButton: React.FC<AppButtonProps> = ({
   const getBackgroundColor = () => {
     if (disabled) return theme.colors.border;
     switch (variant) {
+      case "outline":
+        return "transparent";
       case "secondary":
         return theme.colors.secondary;
       case "danger":
@@ -49,14 +51,29 @@ const AppButton: React.FC<AppButtonProps> = ({
 
   const getTextColor = () => {
     if (disabled) return theme.colors.onSurface;
+    if (variant === "outline") return theme.colors.primary;
     return theme.colors.onPrimary;
+  };
+
+  const getBorderColor = () => {
+    if (disabled) return theme.colors.border;
+    if (variant === "outline") return theme.colors.primary;
+    return getBackgroundColor();
   };
 
   return (
     <TouchableOpacity
       onPress={onPress}
       disabled={disabled || loading}
-      style={[styles.button, { backgroundColor: getBackgroundColor() }, style]}
+      style={[
+        styles.button,
+        {
+          backgroundColor: getBackgroundColor(),
+          borderWidth: variant === "outline" ? 1 : 0,
+          borderColor: getBorderColor(),
+        },
+        style,
+      ]}
       activeOpacity={0.7}
     >
       {loading ? (
